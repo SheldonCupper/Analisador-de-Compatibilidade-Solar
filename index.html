@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Analisador de Compatibilidade Solar</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -29,13 +31,38 @@
             color: #b45309; /* amber-700 */
             font-weight: 600;
         }
+        /* Estilos para o Modal de Histórico */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
 
-    <main class="max-w-4xl w-full">
+    <main id="main-content" class="max-w-4xl w-full">
         <div class="card mb-6">
-            <h1 class="text-3xl font-bold text-gray-800 text-center mb-2">Analisador de Compatibilidade Solar (PV)</h1>
+            <div class="flex justify-between items-center mb-2">
+                 <h1 class="text-3xl font-bold text-gray-800 text-center flex-grow">Analisador de Compatibilidade Solar (PV)</h1>
+                 <button onclick="abrirHistorico()" class="text-indigo-600 hover:text-indigo-800 font-semibold">Últimos Projetos</button>
+            </div>
             <p class="text-gray-600 text-center mb-8">Insira os dados técnicos do painel e do inversor para calcular a compatibilidade.</p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -130,23 +157,45 @@
             </div>
             
             <!-- Botões -->
-            <div class="mt-8 flex flex-col sm:flex-row justify-center gap-4">
+            <div id="action-buttons" class="mt-8 flex flex-col sm:flex-row justify-center gap-4">
                 <button onclick="analisarCompatibilidade()" class="w-full sm:w-auto bg-indigo-600 text-white font-semibold py-2 px-6 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-colors">
                     Analisar
                 </button>
                  <button onclick="limparCampos()" class="w-full sm:w-auto bg-gray-200 text-gray-700 font-semibold py-2 px-6 rounded-lg shadow-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-colors">
                     Limpar
                 </button>
+                <button onclick="exportarPDF()" class="w-full sm:w-auto bg-green-600 text-white font-semibold py-2 px-6 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors">
+                    Exportar para PDF
+                </button>
             </div>
         </div>
 
         <!-- Seção de Resultados -->
         <div id="resultado" class="card mt-6 hidden"></div>
-
     </main>
 
+    <!-- Modal de Histórico -->
+    <div id="modal-historico" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Últimos Projetos</h2>
+                <button onclick="fecharHistorico()" class="text-2xl font-bold">&times;</button>
+            </div>
+            <div id="lista-historico" class="space-y-2">
+                <!-- Itens do histórico serão inseridos aqui -->
+            </div>
+            <div class="mt-4 text-right">
+                <button onclick="limparHistorico()" class="text-red-500 hover:text-red-700 text-sm">Limpar Histórico</button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        window.onload = gerarCamposEntradas;
+        window.jsPDF = window.jspdf.jsPDF;
+        window.onload = () => {
+            gerarCamposEntradas();
+            carregarHistorico();
+        };
 
         function gerarCamposEntradas() {
             const numMppt = document.getElementById('num_mppt').value;
@@ -192,6 +241,8 @@
                 document.getElementById('resultado').classList.remove('hidden');
                 return;
             }
+            
+            salvarProjeto();
             
             let compativelGeral = true;
             let temAvisoClipping = false;
@@ -319,6 +370,124 @@
             document.getElementById('resultado').classList.add('hidden');
             document.getElementById('resultado').innerHTML = '';
         }
+
+        function exportarPDF() {
+            const content = document.getElementById('resultado');
+
+            if (content.classList.contains('hidden') || !content.innerHTML.trim()) {
+                return; // Não faz nada se não houver resultados
+            }
+
+            html2canvas(content, { scale: 2 }).then(canvas => { // Aumenta a escala para melhor resolução
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF({
+                    orientation: 'p',
+                    unit: 'mm',
+                    format: 'a4'
+                });
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+                const canvasWidth = canvas.width;
+                const canvasHeight = canvas.height;
+                const ratio = canvasWidth / canvasHeight;
+                
+                let imgWidth = pdfWidth - 20; // Adiciona margem
+                let imgHeight = imgWidth / ratio;
+                
+                if (imgHeight > pdfHeight - 20) {
+                    imgHeight = pdfHeight - 20;
+                    imgWidth = imgHeight * ratio;
+                }
+
+                const x = (pdfWidth - imgWidth) / 2;
+                const y = 10;
+
+                pdf.addImage(imgData, 'PNG', x, y, imgWidth, imgHeight);
+                pdf.save("analise_compatibilidade.pdf");
+            });
+        }
+
+        // --- Funções de Histórico ---
+        const getHistorico = () => JSON.parse(localStorage.getItem('solarProjects') || '[]');
+        const setHistorico = (historico) => localStorage.setItem('solarProjects', JSON.stringify(historico));
+
+        function salvarProjeto() {
+            const numMppt = parseInt(document.getElementById('num_mppt').value);
+            let strings = [];
+            for(let i = 1; i <= numMppt; i++) {
+                strings.push(parseInt(document.getElementById(`entradas_mppt_${i}`).value));
+            }
+
+            const projeto = {
+                id: Date.now(),
+                nome: `Análise - ${new Date().toLocaleString('pt-BR')}`,
+                inputs: {
+                    pmax: document.getElementById('pmax').value, vmp: document.getElementById('vmp').value,
+                    imp: document.getElementById('imp').value, voc: document.getElementById('voc').value,
+                    isc: document.getElementById('isc').value,
+                    inv_potencia: document.getElementById('inv_potencia').value, inv_tensao_max: document.getElementById('inv_tensao_max').value,
+                    inv_mppt_min: document.getElementById('inv_mppt_min').value, inv_mppt_max: document.getElementById('inv_mppt_max').value,
+                    inv_corrente_max: document.getElementById('inv_corrente_max').value, inv_isc_max: document.getElementById('inv_isc_max').value,
+                },
+                config: { numMppt, strings }
+            };
+
+            let historico = getHistorico();
+            historico.unshift(projeto);
+            if (historico.length > 10) historico.pop(); // Limita a 10 projetos
+            setHistorico(historico);
+            carregarHistorico();
+        }
+
+        function carregarHistorico() {
+            const historico = getHistorico();
+            const lista = document.getElementById('lista-historico');
+            lista.innerHTML = '';
+            if (historico.length === 0) {
+                lista.innerHTML = '<p class="text-gray-500">Nenhum projeto salvo.</p>';
+                return;
+            }
+            historico.forEach(projeto => {
+                const item = document.createElement('div');
+                item.className = 'p-2 border rounded-md hover:bg-gray-100 cursor-pointer';
+                item.textContent = projeto.nome;
+                item.onclick = () => carregarProjeto(projeto.id);
+                lista.appendChild(item);
+            });
+        }
+
+        function carregarProjeto(id) {
+            const historico = getHistorico();
+            const projeto = historico.find(p => p.id === id);
+            if (!projeto) return;
+
+            // Preenche os inputs
+            for (const key in projeto.inputs) {
+                document.getElementById(key).value = projeto.inputs[key];
+            }
+            
+            // Configura MPPTs
+            document.getElementById('num_mppt').value = projeto.config.numMppt;
+            gerarCamposEntradas(); // Gera os campos de string
+            
+            // Preenche os valores das strings
+            projeto.config.strings.forEach((val, index) => {
+                document.getElementById(`entradas_mppt_${index + 1}`).value = val;
+            });
+
+            fecharHistorico();
+            analisarCompatibilidade(); // Opcional: rodar a análise automaticamente
+        }
+
+        function limparHistorico() {
+            if (confirm('Tem certeza que deseja apagar todo o histórico?')) {
+                setHistorico([]);
+                carregarHistorico();
+            }
+        }
+
+        function abrirHistorico() { document.getElementById('modal-historico').classList.remove('hidden'); }
+        function fecharHistorico() { document.getElementById('modal-historico').classList.add('hidden'); }
     </script>
 
 </body>
